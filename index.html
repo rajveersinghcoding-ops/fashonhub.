@@ -1362,6 +1362,7 @@
         let mediaFilesModal = [];
         let mediaUploaded = false;
         let mediaUploadedModal = false;
+        let syncInterval = null;
         
         // Default admin password (in a real application, this would be handled securely on the server)
         const ADMIN_PASSWORD = "admin123";
@@ -1369,57 +1370,56 @@
         
         // Initialize the app
         document.addEventListener('DOMContentLoaded', function() {
-            // Load data from localStorage
-            loadData();
+            // Load data from server
+            loadProductsFromServer();
             
             // Initialize the app
             initializeApp();
             
             // Set up event listeners
             setupEventListeners();
+            
+            // Set up periodic sync with server
+            setupPeriodicSync();
         });
         
-        // Load data from localStorage
-        function loadData() {
-            // Load products from server
+        // Set up periodic sync with server
+        function setupPeriodicSync() {
+            // Sync with server every 30 seconds
+            syncInterval = setInterval(() => {
+                loadProductsFromServer();
+            }, 30000);
+        }
+        
+        // Load products from server
+        function loadProductsFromServer() {
             fetch('/api/products')
-                .then(response => response.json())
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
                 .then(serverProducts => {
-                    if (serverProducts && serverProducts.length > 0) {
-                        products = serverProducts;
-                        localStorage.setItem('products', JSON.stringify(products));
-                    } else {
-                        // Fall back to localStorage if server has no products
-                        const savedProducts = localStorage.getItem('products');
-                        if (savedProducts) {
-                            products = JSON.parse(savedProducts);
-                        } else {
-                            initializeSampleProducts();
-                        }
-                    }
+                    products = serverProducts;
+                    localStorage.setItem('products', JSON.stringify(products));
                     
-                    // Load cart and orders from localStorage as before
-                    const savedCart = localStorage.getItem('cart');
-                    const savedOrders = localStorage.getItem('orders');
-                    
-                    if (savedCart) {
-                        cart = JSON.parse(savedCart);
-                    }
-                    
-                    if (savedOrders) {
-                        orders = JSON.parse(savedOrders);
-                    }
+                    // Refresh the current view if needed
+                    refreshCurrentView();
                 })
                 .catch(error => {
                     console.error('Error loading products from server:', error);
-                    // Fall back to localStorage
+                    // If server is unavailable, try to load from localStorage
                     const savedProducts = localStorage.getItem('products');
                     if (savedProducts) {
                         products = JSON.parse(savedProducts);
                     } else {
+                        // Initialize with sample products if no products exist
                         initializeSampleProducts();
                     }
-                    
+                })
+                .finally(() => {
+                    // Load cart and orders from localStorage
                     const savedCart = localStorage.getItem('cart');
                     const savedOrders = localStorage.getItem('orders');
                     
@@ -1430,12 +1430,47 @@
                     if (savedOrders) {
                         orders = JSON.parse(savedOrders);
                     }
+                    
+                    // Update cart count
+                    updateCartCount();
                 });
+        }
+        
+        // Refresh current view based on active page
+        function refreshCurrentView() {
+            const homePage = document.getElementById('homePage');
+            const productDetailPage = document.getElementById('productDetailPage');
+            const cartPage = document.getElementById('cartPage');
+            const adminPanel = document.getElementById('adminPanel');
+            
+            if (homePage.style.display !== 'none') {
+                loadFeaturedProducts();
+            } else if (productDetailPage.style.display !== 'none' && currentProduct) {
+                // Refresh product detail if it's still available
+                const product = products.find(p => p.id === currentProduct.id);
+                if (product) {
+                    currentProduct = product;
+                    document.getElementById('productDetailImage').src = product.image;
+                    document.getElementById('productDetailTitle').textContent = product.name;
+                    document.getElementById('productDetailPrice').textContent = `$${product.price}`;
+                    document.getElementById('productDetailDescription').textContent = product.description;
+                    loadSizeOptions(product.sizes);
+                    loadProductReviews(product.reviews);
+                } else {
+                    // Product was deleted, go back to home page
+                    showHomePage();
+                    showNotification('This product is no longer available');
+                }
+            } else if (cartPage.style.display !== 'none') {
+                loadCartItems();
+                updateCartSummary();
+            } else if (adminPanel.style.display !== 'none') {
+                loadAdminProducts();
+            }
         }
         
         // Save data to localStorage
         function saveData() {
-            localStorage.setItem('products', JSON.stringify(products));
             localStorage.setItem('cart', JSON.stringify(cart));
             localStorage.setItem('orders', JSON.stringify(orders));
         }
@@ -1563,16 +1598,14 @@
                 }
             ];
             
-            saveData();
+            // Save sample products to localStorage
+            localStorage.setItem('products', JSON.stringify(products));
         }
         
         // Initialize the app
         function initializeApp() {
             // Show home page
             showHomePage();
-            
-            // Update cart count
-            updateCartCount();
         }
         
         // Set up event listeners
@@ -2460,11 +2493,8 @@
             .then(response => response.json())
             .then(data => {
                 if (data.message === 'Product added successfully') {
-                    // Add the returned product to the local array
-                    products.push(data.product);
-                    
-                    // Save to localStorage as backup
-                    localStorage.setItem('products', JSON.stringify(products));
+                    // Reload products from server to get the latest
+                    loadProductsFromServer();
                     
                     // Reset form
                     document.getElementById('addProductForm').reset();
@@ -2473,9 +2503,6 @@
                     mediaUploaded = false;
                     document.getElementById('uploadMediaBtn').textContent = 'Upload Media';
                     document.getElementById('submitProductBtn').disabled = true;
-                    
-                    // Reload admin products
-                    loadAdminProducts();
                     
                     // Show notification
                     showNotification('Product added successfully');
@@ -2489,125 +2516,30 @@
             });
         }
         
-        // Upload product from modal (admin function)
-        function uploadProductFromModal() {
-            const name = document.getElementById('productName').value;
-            const price = parseFloat(document.getElementById('productCost').value);
-            const sizesInput = document.getElementById('productSizesModal').value;
-            const category = document.getElementById('productCategory').value;
-            const description = document.getElementById('productDescription').value;
-            
-            // Process sizes input
-            let sizes = [];
-            if (sizesInput) {
-                sizes = sizesInput.split(',').map(size => size.trim());
-            } else {
-                sizes = ["S", "M", "L"]; // Default sizes if none provided
-            }
-            
-            // Check if media files were uploaded
-            if (!mediaUploadedModal || mediaFilesModal.length === 0) {
-                showNotification('Please upload at least one image or video');
-                return;
-            }
-            
-            // Create new product
-            const newProduct = {
-                id: Date.now(),
-                name: name,
-                price: price,
-                category: category,
-                image: mediaFilesModal[0].url, // Use first media as main image
-                media: [...mediaFilesModal], // Store all media files
-                sizes: sizes,
-                description: description,
-                reviews: []
-            };
-            
-            // Add to products array
-            products.push(newProduct);
-            
-            // Save data
-            saveData();
-            
-            // Reset form
-            document.getElementById('productForm').reset();
-            document.getElementById('productPreview').style.display = 'none';
-            document.getElementById('mediaGalleryModal').innerHTML = '';
-            mediaFilesModal = [];
-            mediaUploadedModal = false;
-            document.getElementById('uploadMediaModalBtn').textContent = 'Upload Media';
-            document.getElementById('submitProductModalBtn').disabled = true;
-            
-            // Close modal
-            document.getElementById('uploadProductModal').style.display = 'none';
-            
-            // Show notification
-            showNotification('Product uploaded successfully');
-        }
-        
-        // Preview product (admin function)
-        function previewProduct() {
-            const name = document.getElementById('productName').value;
-            const price = document.getElementById('productCost').value;
-            const sizesInput = document.getElementById('productSizesModal').value;
-            const category = document.getElementById('productCategory').value;
-            const description = document.getElementById('productDescription').value;
-            
-            // Process sizes input
-            let sizes = [];
-            if (sizesInput) {
-                sizes = sizesInput.split(',').map(size => size.trim());
-            } else {
-                sizes = ["S", "M", "L"]; // Default sizes if none provided
-            }
-            
-            // Get media files
-            const mediaFiles = mediaFilesModal;
-            
-            let mediaHtml = '';
-            if (mediaFiles.length > 0) {
-                // Display first media as main image/video
-                if (mediaFiles[0].type === 'image') {
-                    mediaHtml = `<img src="${mediaFiles[0].url}" alt="${name}" style="max-width: 100%; max-height: 200px; border-radius: 8px;">`;
-                } else {
-                    mediaHtml = `<video src="${mediaFiles[0].url}" controls style="max-width: 100%; max-height: 200px; border-radius: 8px;"></video>`;
-                }
-            }
-            
-            // Create thumbnail gallery
-            let thumbnailsHtml = '';
-            if (mediaFiles.length > 1) {
-                thumbnailsHtml = '<div class="mt-2"><h6>Media Gallery:</h6><div class="d-flex flex-wrap gap-1">';
-                
-                for (let i = 1; i < mediaFiles.length; i++) {
-                    if (mediaFiles[i].type === 'image') {
-                        thumbnailsHtml += `<img src="${mediaFiles[i].url}" alt="Product image" style="width: 50px; height: 50px; object-fit: cover; border-radius: 4px;">`;
+        // Delete product (admin function)
+        function deleteProduct(productId) {
+            if (confirm('Are you sure you want to delete this product? This action cannot be undone.')) {
+                // Send delete request to server
+                fetch(`/api/products/${productId}`, {
+                    method: 'DELETE'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.message === 'Product deleted successfully') {
+                        // Reload products from server to get the latest
+                        loadProductsFromServer();
+                        
+                        // Show notification
+                        showNotification('Product deleted successfully');
                     } else {
-                        thumbnailsHtml += `<div style="width: 50px; height: 50px; background-color: #f0f0f0; border-radius: 4px; display: flex; align-items: center; justify-content: center;"><i class="fas fa-video"></i></div>`;
+                        showNotification('Failed to delete product: ' + data.message);
                     }
-                }
-                
-                thumbnailsHtml += '</div></div>';
+                })
+                .catch(error => {
+                    console.error('Error deleting product:', error);
+                    showNotification('Failed to delete product');
+                });
             }
-            
-            // Update preview content
-            document.getElementById('previewContent').innerHTML = `
-                <div class="product-card">
-                    ${mediaHtml}
-                    <div class="card-body">
-                        <h5 class="card-title">${name}</h5>
-                        <div class="price">$${price}</div>
-                        <p>${description}</p>
-                        <div>Sizes: ${sizes.join(', ')}</div>
-                        <div>Category: ${category}</div>
-                        ${thumbnailsHtml}
-                    </div>
-                </div>
-            `;
-            
-            // Show preview
-            document.getElementById('productPreview').style.display = 'block';
         }
         
         // Load admin products
@@ -2755,38 +2687,60 @@
                         sizes = ["S", "M", "L"]; // Default sizes if none provided
                     }
                     
-                    // Check if media files were uploaded
-                    if (!mediaUploaded || mediaFiles.length === 0) {
-                        showNotification('Please upload at least one image or video');
-                        return;
-                    }
+                    // Create form data for server upload
+                    const formData = new FormData();
+                    formData.append('name', document.getElementById('productName').value);
+                    formData.append('price', parseFloat(document.getElementById('productPrice').value));
+                    formData.append('category', document.getElementById('productCategory').value);
+                    formData.append('sizes', sizes.join(','));
+                    formData.append('description', document.getElementById('productDescription').value);
                     
-                    // Update product
-                    product.name = document.getElementById('productName').value;
-                    product.price = parseFloat(document.getElementById('productPrice').value);
-                    product.category = document.getElementById('productCategory').value;
-                    product.sizes = sizes;
-                    product.description = document.getElementById('productDescription').value;
-                    product.image = mediaFiles[0].url; // Use first media as main image
-                    product.media = [...mediaFiles]; // Update all media files
+                    // Add media files to form data
+                    mediaFiles.forEach((media, index) => {
+                        // Convert data URL to blob
+                        const byteString = atob(media.url.split(',')[1]);
+                        const mimeString = media.url.split(',')[0].split(':')[1].split(';')[0];
+                        const ab = new ArrayBuffer(byteString.length);
+                        const ia = new Uint8Array(ab);
+                        
+                        for (let i = 0; i < byteString.length; i++) {
+                            ia[i] = byteString.charCodeAt(i);
+                        }
+                        
+                        const blob = new Blob([ab], { type: mimeString });
+                        formData.append('media', blob, `media-${index}.${mimeString.split('/')[1]}`);
+                    });
                     
-                    // Save data
-                    saveData();
-                    
-                    // Reset form
-                    form.reset();
-                    gallery.innerHTML = '';
-                    mediaFiles = [];
-                    mediaUploaded = false;
-                    document.getElementById('uploadMediaBtn').textContent = 'Upload Media';
-                    document.getElementById('submitProductBtn').disabled = true;
-                    form.onsubmit = null;
-                    
-                    // Reload admin products
-                    loadAdminProducts();
-                    
-                    // Show notification
-                    showNotification('Product updated successfully');
+                    // Send update to server
+                    fetch(`/api/products/${productId}`, {
+                        method: 'PUT',
+                        body: formData
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.message === 'Product updated successfully') {
+                            // Reload products from server to get the latest
+                            loadProductsFromServer();
+                            
+                            // Reset form
+                            form.reset();
+                            gallery.innerHTML = '';
+                            mediaFiles = [];
+                            mediaUploaded = false;
+                            document.getElementById('uploadMediaBtn').textContent = 'Upload Media';
+                            document.getElementById('submitProductBtn').disabled = true;
+                            form.onsubmit = null;
+                            
+                            // Show notification
+                            showNotification('Product updated successfully');
+                        } else {
+                            showNotification('Failed to update product: ' + data.message);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error updating product:', error);
+                        showNotification('Failed to update product');
+                    });
                 };
                 
                 // Scroll to form
@@ -2865,65 +2819,67 @@
                         sizes = ["S", "M", "L"]; // Default sizes if none provided
                     }
                     
-                    // Check if media files were uploaded
-                    if (!mediaUploadedModal || mediaFilesModal.length === 0) {
-                        showNotification('Please upload at least one image or video');
-                        return;
-                    }
+                    // Create form data for server upload
+                    const formData = new FormData();
+                    formData.append('name', document.getElementById('productName').value);
+                    formData.append('price', parseFloat(document.getElementById('productCost').value));
+                    formData.append('category', document.getElementById('productCategory').value);
+                    formData.append('sizes', sizes.join(','));
+                    formData.append('description', document.getElementById('productDescription').value);
                     
-                    // Update product
-                    product.name = document.getElementById('productName').value;
-                    product.price = parseFloat(document.getElementById('productCost').value);
-                    product.category = document.getElementById('productCategory').value;
-                    product.sizes = sizes;
-                    product.description = document.getElementById('productDescription').value;
-                    product.image = mediaFilesModal[0].url; // Use first media as main image
-                    product.media = [...mediaFilesModal]; // Update all media files
+                    // Add media files to form data
+                    mediaFilesModal.forEach((media, index) => {
+                        // Convert data URL to blob
+                        const byteString = atob(media.url.split(',')[1]);
+                        const mimeString = media.url.split(',')[0].split(':')[1].split(';')[0];
+                        const ab = new ArrayBuffer(byteString.length);
+                        const ia = new Uint8Array(ab);
+                        
+                        for (let i = 0; i < byteString.length; i++) {
+                            ia[i] = byteString.charCodeAt(i);
+                        }
+                        
+                        const blob = new Blob([ab], { type: mimeString });
+                        formData.append('media', blob, `media-${index}.${mimeString.split('/')[1]}`);
+                    });
                     
-                    // Save data
-                    saveData();
-                    
-                    // Reset form
-                    form.reset();
-                    gallery.innerHTML = '';
-                    mediaFilesModal = [];
-                    mediaUploadedModal = false;
-                    document.getElementById('uploadMediaModalBtn').textContent = 'Upload Media';
-                    document.getElementById('submitProductModalBtn').disabled = true;
-                    form.onsubmit = null;
-                    
-                    // Close modal
-                    document.getElementById('uploadProductModal').style.display = 'none';
-                    
-                    // Show notification
-                    showNotification('Product updated successfully');
+                    // Send update to server
+                    fetch(`/api/products/${productId}`, {
+                        method: 'PUT',
+                        body: formData
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.message === 'Product updated successfully') {
+                            // Reload products from server to get the latest
+                            loadProductsFromServer();
+                            
+                            // Reset form
+                            form.reset();
+                            gallery.innerHTML = '';
+                            mediaFilesModal = [];
+                            mediaUploadedModal = false;
+                            document.getElementById('uploadMediaModalBtn').textContent = 'Upload Media';
+                            document.getElementById('submitProductModalBtn').disabled = true;
+                            form.onsubmit = null;
+                            
+                            // Close modal
+                            document.getElementById('uploadProductModal').style.display = 'none';
+                            
+                            // Show notification
+                            showNotification('Product updated successfully');
+                        } else {
+                            showNotification('Failed to update product: ' + data.message);
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error updating product:', error);
+                        showNotification('Failed to update product');
+                    });
                 };
                 
                 // Open upload product modal
                 document.getElementById('uploadProductModal').style.display = 'block';
-            }
-        }
-        
-        // Delete product (admin function)
-        function deleteProduct(productId) {
-            if (confirm('Are you sure you want to delete this product? This action cannot be undone.')) {
-                // Remove product from products array
-                products = products.filter(p => p.id !== productId);
-                
-                // Remove product from cart if it exists
-                cart = cart.filter(item => item.productId !== productId);
-                
-                // Save data
-                saveData();
-                
-                // Reload admin products
-                loadAdminProducts();
-                
-                // Update cart count
-                updateCartCount();
-                
-                // Show notification
-                showNotification('Product deleted successfully');
             }
         }
         
@@ -3072,6 +3028,151 @@
                 
                 container.appendChild(messageElement);
             });
+        }
+        
+        // Upload product from modal (admin function)
+        function uploadProductFromModal() {
+            const name = document.getElementById('productName').value;
+            const price = parseFloat(document.getElementById('productCost').value);
+            const sizesInput = document.getElementById('productSizesModal').value;
+            const category = document.getElementById('productCategory').value;
+            const description = document.getElementById('productDescription').value;
+            
+            // Process sizes input
+            let sizes = [];
+            if (sizesInput) {
+                sizes = sizesInput.split(',').map(size => size.trim());
+            } else {
+                sizes = ["S", "M", "L"]; // Default sizes if none provided
+            }
+            
+            // Check if media files were uploaded
+            if (!mediaUploadedModal || mediaFilesModal.length === 0) {
+                showNotification('Please upload at least one image or video');
+                return;
+            }
+            
+            // Create form data for server upload
+            const formData = new FormData();
+            formData.append('name', name);
+            formData.append('price', price);
+            formData.append('category', category);
+            formData.append('sizes', sizes.join(','));
+            formData.append('description', description);
+            
+            // Add media files to form data
+            mediaFilesModal.forEach((media, index) => {
+                // Convert data URL to blob
+                const byteString = atob(media.url.split(',')[1]);
+                const mimeString = media.url.split(',')[0].split(':')[1].split(';')[0];
+                const ab = new ArrayBuffer(byteString.length);
+                const ia = new Uint8Array(ab);
+                
+                for (let i = 0; i < byteString.length; i++) {
+                    ia[i] = byteString.charCodeAt(i);
+                }
+                
+                const blob = new Blob([ab], { type: mimeString });
+                formData.append('media', blob, `media-${index}.${mimeString.split('/')[1]}`);
+            });
+            
+            // Send product to server
+            fetch('/api/products', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.message === 'Product added successfully') {
+                    // Reload products from server to get the latest
+                    loadProductsFromServer();
+                    
+                    // Reset form
+                    document.getElementById('productForm').reset();
+                    document.getElementById('productPreview').style.display = 'none';
+                    document.getElementById('mediaGalleryModal').innerHTML = '';
+                    mediaFilesModal = [];
+                    mediaUploadedModal = false;
+                    document.getElementById('uploadMediaModalBtn').textContent = 'Upload Media';
+                    document.getElementById('submitProductModalBtn').disabled = true;
+                    
+                    // Close modal
+                    document.getElementById('uploadProductModal').style.display = 'none';
+                    
+                    // Show notification
+                    showNotification('Product uploaded successfully');
+                } else {
+                    showNotification('Failed to upload product: ' + data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error uploading product:', error);
+                showNotification('Failed to upload product');
+            });
+        }
+        
+        // Preview product (admin function)
+        function previewProduct() {
+            const name = document.getElementById('productName').value;
+            const price = document.getElementById('productCost').value;
+            const sizesInput = document.getElementById('productSizesModal').value;
+            const category = document.getElementById('productCategory').value;
+            const description = document.getElementById('productDescription').value;
+            
+            // Process sizes input
+            let sizes = [];
+            if (sizesInput) {
+                sizes = sizesInput.split(',').map(size => size.trim());
+            } else {
+                sizes = ["S", "M", "L"]; // Default sizes if none provided
+            }
+            
+            // Get media files
+            const mediaFiles = mediaFilesModal;
+            
+            let mediaHtml = '';
+            if (mediaFiles.length > 0) {
+                // Display first media as main image/video
+                if (mediaFiles[0].type === 'image') {
+                    mediaHtml = `<img src="${mediaFiles[0].url}" alt="${name}" style="max-width: 100%; max-height: 200px; border-radius: 8px;">`;
+                } else {
+                    mediaHtml = `<video src="${mediaFiles[0].url}" controls style="max-width: 100%; max-height: 200px; border-radius: 8px;"></video>`;
+                }
+            }
+            
+            // Create thumbnail gallery
+            let thumbnailsHtml = '';
+            if (mediaFiles.length > 1) {
+                thumbnailsHtml = '<div class="mt-2"><h6>Media Gallery:</h6><div class="d-flex flex-wrap gap-1">';
+                
+                for (let i = 1; i < mediaFiles.length; i++) {
+                    if (mediaFiles[i].type === 'image') {
+                        thumbnailsHtml += `<img src="${mediaFiles[i].url}" alt="Product image" style="width: 50px; height: 50px; object-fit: cover; border-radius: 4px;">`;
+                    } else {
+                        thumbnailsHtml += `<div style="width: 50px; height: 50px; background-color: #f0f0f0; border-radius: 4px; display: flex; align-items: center; justify-content: center;"><i class="fas fa-video"></i></div>`;
+                    }
+                }
+                
+                thumbnailsHtml += '</div></div>';
+            }
+            
+            // Update preview content
+            document.getElementById('previewContent').innerHTML = `
+                <div class="product-card">
+                    ${mediaHtml}
+                    <div class="card-body">
+                        <h5 class="card-title">${name}</h5>
+                        <div class="price">$${price}</div>
+                        <p>${description}</p>
+                        <div>Sizes: ${sizes.join(', ')}</div>
+                        <div>Category: ${category}</div>
+                        ${thumbnailsHtml}
+                    </div>
+                </div>
+            `;
+            
+            // Show preview
+            document.getElementById('productPreview').style.display = 'block';
         }
         
         // Show notification
