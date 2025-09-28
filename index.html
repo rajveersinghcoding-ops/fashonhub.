@@ -11,6 +11,7 @@
     <!-- Firebase SDK -->
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-storage-compat.js"></script>
     
     <style>
         :root {
@@ -553,7 +554,6 @@
             font-weight: 600;
         }
         
-        /* Admin Button Styles - Modified */
         .admin-button {
             position: fixed;
             top: 20px;
@@ -563,7 +563,7 @@
             border-radius: 50%;
             background-color: rgba(231, 76, 60, 0.7);
             color: white;
-            display: none; /* Initially hidden */
+            display: none;
             align-items: center;
             justify-content: center;
             cursor: pointer;
@@ -582,7 +582,6 @@
             transform: scale(1.1);
         }
         
-        /* Modal Styles */
         .modal {
             display: none;
             position: fixed;
@@ -665,7 +664,6 @@
             margin-top: 10px;
         }
         
-        /* Media Gallery Styles */
         .media-gallery {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
@@ -741,7 +739,6 @@
             color: #777;
         }
         
-        /* Admin Dashboard Styles */
         .admin-dashboard-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -797,6 +794,37 @@
         .admin-dashboard-card p {
             color: #6c757d;
             margin-bottom: 0;
+        }
+        
+        .upload-progress {
+            width: 100%;
+            height: 4px;
+            background-color: #f0f0f0;
+            border-radius: 2px;
+            margin-top: 5px;
+            overflow: hidden;
+        }
+        
+        .upload-progress-bar {
+            height: 100%;
+            background-color: var(--accent-color);
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        .media-item.uploading .remove-media {
+            display: none;
+        }
+        
+        .media-item .upload-status {
+            position: absolute;
+            bottom: 5px;
+            right: 5px;
+            background-color: rgba(0,0,0,0.7);
+            color: white;
+            border-radius: 4px;
+            padding: 2px 6px;
+            font-size: 10px;
         }
         
         @media (max-width: 768px) {
@@ -1235,7 +1263,7 @@
         </div>
     </footer>
 
-    <!-- Admin Button - Modified -->
+    <!-- Admin Button -->
     <div class="admin-button" id="adminButton">
         <i class="fas fa-user-shield"></i>
     </div>
@@ -1259,8 +1287,8 @@
             <h2 class="text-2xl font-bold mb-4">Upload Product</h2>
             <form id="productForm" class="space-y-4">
                 <div>
-                    <label for="productName" class="block text-sm font-medium text-gray-700 mb-1">Product Name</label>
-                    <input type="text" id="productName" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent" required>
+                    <label for="productNameModal" class="block text-sm font-medium text-gray-700 mb-1">Product Name</label>
+                    <input type="text" id="productNameModal" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent" required>
                 </div>
                 <div>
                     <label for="productCost" class="block text-sm font-medium text-gray-700 mb-1">Cost ($)</label>
@@ -1271,12 +1299,12 @@
                     <input type="text" id="productSizesModal" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent" placeholder="e.g., S,M,L,XL">
                 </div>
                 <div>
-                    <label for="productDescription" class="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                    <textarea id="productDescription" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent" required></textarea>
+                    <label for="productDescriptionModal" class="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                    <textarea id="productDescriptionModal" rows="3" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent" required></textarea>
                 </div>
                 <div>
-                    <label for="productCategory" class="block text-sm font-medium text-gray-700 mb-1">Category</label>
-                    <select id="productCategory" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent" required>
+                    <label for="productCategoryModal" class="block text-sm font-medium text-gray-700 mb-1">Category</label>
+                    <select id="productCategoryModal" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-orange-500 focus:border-transparent" required>
                         <option value="">Select a category</option>
                         <option value="men">Men</option>
                         <option value="women">Women</option>
@@ -1357,17 +1385,21 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // Initialize Firebase - REPLACE WITH YOUR CONFIG
+        // Initialize Firebase with your configuration
         const firebaseConfig = {
-            apiKey: "AIzaSyB7X7vXjY5X7vXjY5X7vXjY5X7vXjY5X7",
-            authDomain: "fashionhub-12345.firebaseapp.com",
-            projectId: "fashionhub-12345",
-            storageBucket: "fashionhub-12345.appspot.com",
-            messagingSenderId: "123456789012",
-            appId: "1:123456789012:web:1234567890123456"
+            apiKey: "AIzaSyBf3Fk9Cqa75DiPw09XN1ZBdl6u-O5W6_c",
+            authDomain: "fashon-hub.firebaseapp.com",
+            projectId: "fashon-hub",
+            storageBucket: "fashon-hub.firebasestorage.app",
+            messagingSenderId: "476563664175",
+            appId: "1:476563664175:web:a0f52c848f0d9f3cc485da",
+            measurementId: "G-B6CDH14YCN"
         };
+        
+        // Initialize Firebase
         firebase.initializeApp(firebaseConfig);
         const db = firebase.firestore();
+        const storage = firebase.storage();
         
         // Initialize data
         let products = [];
@@ -1515,8 +1547,7 @@
                     category: "women",
                     image: "https://images.unsplash.com/photo-1551537482-f2075a1d41f2?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=987&q=80",
                     media: [
-                        { type: 'image', url: "https://images.unsplash.com/photo-1551537482-f2075a1d41f2?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=987&q=80" },
-                        { type: 'video', url: "https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4" }
+                        { type: 'image', url: "https://images.unsplash.com/photo-1551537482-f2075a1d41f2?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=987&q=80" }
                     ],
                     description: "Stylish denim jacket with a modern fit. Perfect for layering.",
                     sizes: ["XS", "S", "M", "L"],
@@ -1549,9 +1580,7 @@
                     category: "accessories",
                     image: "https://images.unsplash.com/photo-1584917865442-de89df76afd3?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=988&q=80",
                     media: [
-                        { type: 'image', url: "https://images.unsplash.com/photo-1584917865442-de89df76afd3?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=988&q=80" },
-                        { type: 'image', url: "https://images.unsplash.com/photo-1590854272585-4aad9caf0efe?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=987&q=80" },
-                        { type: 'video', url: "https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4" }
+                        { type: 'image', url: "https://images.unsplash.com/photo-1584917865442-de89df76afd3?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=988&q=80" }
                     ],
                     description: "Elegant leather handbag with plenty of space for all your essentials.",
                     sizes: ["One Size"],
@@ -1572,8 +1601,7 @@
                     originalPrice: 59.99,
                     image: "https://images.unsplash.com/photo-1611312449408-fcece27cdbb7?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=987&q=80",
                     media: [
-                        { type: 'image', url: "https://images.unsplash.com/photo-1611312449408-fcece27cdbb7?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=987&q=80" },
-                        { type: 'video', url: "https://sample-videos.com/video123/mp4/720/big_buck_bunny_720p_1mb.mp4" }
+                        { type: 'image', url: "https://images.unsplash.com/photo-1611312449408-fcece27cdbb7?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=987&q=80" }
                     ],
                     description: "Light and breezy summer dress, perfect for warm weather.",
                     sizes: ["XS", "S", "M", "L", "XL"],
@@ -1613,6 +1641,157 @@
             }).catch(error => {
                 console.error('Error adding sample products to Firebase:', error);
             });
+        }
+        
+        // Upload file to Firebase Storage
+        function uploadFileToStorage(file, progressCallback) {
+            return new Promise((resolve, reject) => {
+                // Create a storage reference
+                const storageRef = storage.ref();
+                const fileName = `${Date.now()}_${file.name}`;
+                const fileRef = storageRef.child(`products/${fileName}`);
+                
+                // Upload file
+                const uploadTask = fileRef.put(file);
+                
+                // Listen for state changes, errors, and completion
+                uploadTask.on('state_changed',
+                    (snapshot) => {
+                        // Progress callback
+                        const progress = (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
+                        if (progressCallback) progressCallback(progress);
+                    },
+                    (error) => {
+                        // Handle error
+                        reject(error);
+                    },
+                    () => {
+                        // Upload completed successfully
+                        uploadTask.snapshot.ref.getDownloadURL().then((downloadURL) => {
+                            resolve({
+                                url: downloadURL,
+                                name: fileName,
+                                type: file.type.startsWith('image/') ? 'image' : 'video'
+                            });
+                        });
+                    }
+                );
+            });
+        }
+        
+        // Handle media upload for both admin panel and modal
+        async function handleMediaUpload(event, galleryId, uploadBtnId, submitBtnId) {
+            const files = event.target.files;
+            const gallery = document.getElementById(galleryId);
+            const uploadBtn = document.getElementById(uploadBtnId);
+            const submitBtn = document.getElementById(submitBtnId);
+            
+            if (!files || files.length === 0) return;
+            
+            // Clear existing media if any
+            if (galleryId === 'mediaGallery') {
+                mediaFiles = [];
+                gallery.innerHTML = '';
+                mediaUploaded = false;
+            } else {
+                mediaFilesModal = [];
+                gallery.innerHTML = '';
+                mediaUploadedModal = false;
+            }
+            
+            // Disable submit button until all uploads complete
+            submitBtn.disabled = true;
+            
+            // Process each file
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const mediaType = file.type.startsWith('image/') ? 'image' : 'video';
+                
+                // Create media item with loading state
+                const mediaItem = document.createElement('div');
+                mediaItem.className = 'media-item uploading';
+                mediaItem.innerHTML = `
+                    <div class="upload-status">Uploading...</div>
+                    <div class="upload-progress">
+                        <div class="upload-progress-bar"></div>
+                    </div>
+                `;
+                
+                gallery.appendChild(mediaItem);
+                
+                try {
+                    // Upload file to Firebase Storage
+                    const mediaData = await uploadFileToStorage(file, (progress) => {
+                        // Update progress bar
+                        const progressBar = mediaItem.querySelector('.upload-progress-bar');
+                        if (progressBar) {
+                            progressBar.style.width = `${progress}%`;
+                        }
+                    });
+                    
+                    // Create media item with actual content
+                    mediaItem.className = 'media-item';
+                    if (mediaType === 'image') {
+                        mediaItem.innerHTML = `
+                            <img src="${mediaData.url}" alt="Product image">
+                            <button class="remove-media" data-index="${i}">×</button>
+                            <span class="media-type">Image</span>
+                        `;
+                    } else {
+                        mediaItem.innerHTML = `
+                            <video src="${mediaData.url}" muted controls></video>
+                            <button class="remove-media" data-index="${i}">×</button>
+                            <span class="media-type">Video</span>
+                        `;
+                    }
+                    
+                    // Add remove button event listener
+                    mediaItem.querySelector('.remove-media').addEventListener('click', function() {
+                        const index = parseInt(this.getAttribute('data-index'));
+                        if (galleryId === 'mediaGallery') {
+                            mediaFiles.splice(index, 1);
+                            if (mediaFiles.length === 0) {
+                                mediaUploaded = false;
+                                submitBtn.disabled = true;
+                            }
+                        } else {
+                            mediaFilesModal.splice(index, 1);
+                            if (mediaFilesModal.length === 0) {
+                                mediaUploadedModal = false;
+                                submitBtn.disabled = true;
+                            }
+                        }
+                        mediaItem.remove();
+                    });
+                    
+                    // Store media file data
+                    if (galleryId === 'mediaGallery') {
+                        mediaFiles.push(mediaData);
+                        mediaUploaded = true;
+                    } else {
+                        mediaFilesModal.push(mediaData);
+                        mediaUploadedModal = true;
+                    }
+                    
+                } catch (error) {
+                    console.error('Error uploading file:', error);
+                    mediaItem.innerHTML = `
+                        <div class="error">Upload failed</div>
+                        <button class="remove-media" data-index="${i}">×</button>
+                    `;
+                    
+                    // Add remove button event listener
+                    mediaItem.querySelector('.remove-media').addEventListener('click', function() {
+                        mediaItem.remove();
+                    });
+                }
+            }
+            
+            // Enable submit button if all uploads completed
+            submitBtn.disabled = false;
+            
+            // Update button text
+            uploadBtn.textContent = 'Change Media';
         }
         
         // Initialize the app
@@ -1882,97 +2061,6 @@
                     document.getElementById('adminTrigger').click();
                 }
             });
-        }
-        
-        // Handle media upload for both admin panel and modal
-        function handleMediaUpload(event, galleryId, uploadBtnId, submitBtnId) {
-            const files = event.target.files;
-            const gallery = document.getElementById(galleryId);
-            const uploadBtn = document.getElementById(uploadBtnId);
-            const submitBtn = document.getElementById(submitBtnId);
-            
-            // Clear existing media if any
-            if (galleryId === 'mediaGallery') {
-                mediaFiles = [];
-                gallery.innerHTML = '';
-                mediaUploaded = false;
-            } else {
-                mediaFilesModal = [];
-                gallery.innerHTML = '';
-                mediaUploadedModal = false;
-            }
-            
-            // Add new media files
-            for (let i = 0; i < files.length; i++) {
-                const file = files[i];
-                const reader = new FileReader();
-                
-                reader.onload = function(e) {
-                    const mediaType = file.type.startsWith('image/') ? 'image' : 'video';
-                    const mediaUrl = e.target.result;
-                    
-                    // Create media item
-                    const mediaItem = document.createElement('div');
-                    mediaItem.className = 'media-item';
-                    
-                    if (mediaType === 'image') {
-                        mediaItem.innerHTML = `
-                            <img src="${mediaUrl}" alt="Product image">
-                            <button class="remove-media" data-index="${i}">×</button>
-                            <span class="media-type">Image</span>
-                        `;
-                    } else {
-                        mediaItem.innerHTML = `
-                            <video src="${mediaUrl}" muted></video>
-                            <button class="remove-media" data-index="${i}">×</button>
-                            <span class="media-type">Video</span>
-                        `;
-                    }
-                    
-                    // Add remove button event listener
-                    mediaItem.querySelector('.remove-media').addEventListener('click', function() {
-                        const index = parseInt(this.getAttribute('data-index'));
-                        if (galleryId === 'mediaGallery') {
-                            mediaFiles.splice(index, 1);
-                            if (mediaFiles.length === 0) {
-                                mediaUploaded = false;
-                                submitBtn.disabled = true;
-                            }
-                        } else {
-                            mediaFilesModal.splice(index, 1);
-                            if (mediaFilesModal.length === 0) {
-                                mediaUploadedModal = false;
-                                submitBtn.disabled = true;
-                            }
-                        }
-                        mediaItem.remove();
-                    });
-                    
-                    gallery.appendChild(mediaItem);
-                    
-                    // Store media file
-                    if (galleryId === 'mediaGallery') {
-                        mediaFiles.push({
-                            type: mediaType,
-                            url: mediaUrl
-                        });
-                        mediaUploaded = true;
-                        submitBtn.disabled = false;
-                    } else {
-                        mediaFilesModal.push({
-                            type: mediaType,
-                            url: mediaUrl
-                        });
-                        mediaUploadedModal = true;
-                        submitBtn.disabled = false;
-                    }
-                };
-                
-                reader.readAsDataURL(file);
-            }
-            
-            // Update button text
-            uploadBtn.textContent = 'Change Media';
         }
         
         // Reset category title to "Featured Products"
@@ -2523,9 +2611,31 @@
         // Delete product (admin function)
         function deleteProduct(productId) {
             if (confirm('Are you sure you want to delete this product? This action cannot be undone.')) {
-                // Delete from Firebase
+                // Get product to delete media files from storage
+                const product = products.find(p => p.id === productId);
+                
+                // Delete from Firebase Firestore
                 db.collection('products').doc(productId.toString()).delete()
                     .then(() => {
+                        // Delete media files from Firebase Storage
+                        if (product && product.media) {
+                            const storageRef = storage.ref();
+                            const deletePromises = product.media.map(media => {
+                                // Extract file path from URL
+                                const filePath = media.url.split('/').pop().split('?')[0];
+                                const fileRef = storageRef.child(`products/${filePath}`);
+                                return fileRef.delete();
+                            });
+                            
+                            Promise.all(deletePromises)
+                                .then(() => {
+                                    console.log('Media files deleted successfully');
+                                })
+                                .catch(error => {
+                                    console.error('Error deleting media files:', error);
+                                });
+                        }
+                        
                         // Show notification
                         showNotification('Product deleted successfully');
                     })
@@ -2642,7 +2752,7 @@
                         `;
                     } else {
                         mediaItem.innerHTML = `
-                            <video src="${media.url}" muted></video>
+                            <video src="${media.url}" muted controls></video>
                             <button class="remove-media" data-index="${index}">×</button>
                             <span class="media-type">Video</span>
                         `;
@@ -2727,12 +2837,15 @@
                 // Close current modal
                 document.getElementById('checkProductsModal').style.display = 'none';
                 
+                // Open upload product modal
+                document.getElementById('uploadProductModal').style.display = 'block';
+                
                 // Populate form with product data
-                document.getElementById('productName').value = product.name;
+                document.getElementById('productNameModal').value = product.name;
                 document.getElementById('productCost').value = product.price;
                 document.getElementById('productSizesModal').value = product.sizes.join(', ');
-                document.getElementById('productCategory').value = product.category;
-                document.getElementById('productDescription').value = product.description;
+                document.getElementById('productCategoryModal').value = product.category;
+                document.getElementById('productDescriptionModal').value = product.description;
                 
                 // Load existing media files
                 mediaFilesModal = [...product.media];
@@ -2751,7 +2864,7 @@
                         `;
                     } else {
                         mediaItem.innerHTML = `
-                            <video src="${media.url}" muted></video>
+                            <video src="${media.url}" muted controls></video>
                             <button class="remove-media" data-index="${index}">×</button>
                             <span class="media-type">Video</span>
                         `;
@@ -2793,11 +2906,11 @@
                     // Update product
                     const updatedProduct = {
                         ...product,
-                        name: document.getElementById('productName').value,
+                        name: document.getElementById('productNameModal').value,
                         price: parseFloat(document.getElementById('productCost').value),
-                        category: document.getElementById('productCategory').value,
+                        category: document.getElementById('productCategoryModal').value,
                         sizes: sizes,
-                        description: document.getElementById('productDescription').value,
+                        description: document.getElementById('productDescriptionModal').value,
                         image: mediaFilesModal[0].url, // Use first media as main image
                         media: [...mediaFilesModal] // Update all media files
                     };
@@ -2811,4 +2924,119 @@
                             mediaFilesModal = [];
                             mediaUploadedModal = false;
                             document.getElementById('uploadMediaModalBtn').textContent = 'Upload Media';
-                            document.getElementById('submitProductModalBtn').disabled =
+                            document.getElementById('submitProductModalBtn').disabled = true;
+                            form.onsubmit = null;
+                            
+                            // Close modal
+                            document.getElementById('uploadProductModal').style.display = 'none';
+                            
+                            // Show notification
+                            showNotification('Product updated successfully');
+                        })
+                        .catch(error => {
+                            console.error('Error updating product in Firebase:', error);
+                            showNotification('Failed to update product');
+                        });
+                };
+            }
+        }
+        
+        // Load purchases (admin function)
+        function loadPurchases() {
+            const container = document.getElementById('purchasesList');
+            container.innerHTML = '';
+            
+            if (orders.length === 0) {
+                container.innerHTML = '<p>No orders found</p>';
+                return;
+            }
+            
+            orders.forEach(order => {
+                const orderItem = document.createElement('div');
+                orderItem.className = 'card mb-3';
+                
+                const orderDate = new Date(order.date).toLocaleDateString();
+                
+                orderItem.innerHTML = `
+                    <div class="card-header">
+                        <strong>Order ID: ${order.id}</strong> - ${orderDate}
+                    </div>
+                    <div class="card-body">
+                        <h5 class="card-title">Customer: ${order.customer.firstName} ${order.customer.lastName}</h5>
+                        <p class="card-text">
+                            <strong>Email:</strong> ${order.customer.email}<br>
+                            <strong>Address:</strong> ${order.customer.address}, ${order.customer.city}, ${order.customer.state} ${order.customer.zip}<br>
+                            <strong>Status:</strong> ${order.status}
+                        </p>
+                        <h6>Order Items:</h6>
+                        <ul class="list-group">
+                            ${order.items.map(item => `
+                                <li class="list-group-item d-flex justify-content-between align-items-center">
+                                    ${item.name} (Size: ${item.size}) - $${item.price} x ${item.quantity}
+                                    <span class="badge bg-primary rounded-pill">$${(item.price * item.quantity).toFixed(2)}</span>
+                                </li>
+                            `).join('')}
+                        </ul>
+                        <div class="mt-3">
+                            <strong>Total: $${order.totals.total.toFixed(2)}</strong>
+                        </div>
+                    </div>
+                `;
+                
+                container.appendChild(orderItem);
+            });
+        }
+        
+        // Load messages (admin function)
+        function loadMessages() {
+            const container = document.getElementById('messagesList');
+            container.innerHTML = '';
+            
+            // Since we don't have a messages system in this demo, we'll show a placeholder
+            container.innerHTML = `
+                <div class="alert alert-info">
+                    No messages yet. The messaging system would be implemented here.
+                </div>
+            `;
+        }
+        
+        // Load order history (admin function)
+        function loadOrderHistory() {
+            const container = document.getElementById('orderHistoryTable');
+            container.innerHTML = '';
+            
+            if (orders.length === 0) {
+                container.innerHTML = '<tr><td colspan="5" class="text-center">No orders found</td></tr>';
+                return;
+            }
+            
+            orders.forEach(order => {
+                const row = document.createElement('tr');
+                
+                const orderDate = new Date(order.date).toLocaleDateString();
+                
+                row.innerHTML = `
+                    <td>${order.id}</td>
+                    <td>${orderDate}</td>
+                    <td>${order.customer.firstName} ${order.customer.lastName}</td>
+                    <td>$${order.totals.total.toFixed(2)}</td>
+                    <td>${order.status}</td>
+                `;
+                
+                container.appendChild(row);
+            });
+        }
+        
+        // Show notification
+        function showNotification(message) {
+            const notification = document.getElementById('notification');
+            notification.textContent = message;
+            notification.classList.add('show');
+            
+            setTimeout(() => {
+                notification.classList.remove('show');
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
