@@ -12,17 +12,17 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static('.')); // Serve static files from current directory
 
 // Create directories if they don't exist
 const uploadsDir = path.join(__dirname, 'uploads');
 const productsDir = path.join(__dirname, 'products');
 
 if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir);
+  fs.mkdirSync(uploadsDir, { recursive: true });
 }
 if (!fs.existsSync(productsDir)) {
-  fs.mkdirSync(productsDir);
+  fs.mkdirSync(productsDir, { recursive: true });
 }
 
 // Configure multer for file uploads
@@ -36,7 +36,12 @@ const storage = multer.diskStorage({
   }
 });
 
-const upload = multer({ storage: storage });
+const upload = multer({ 
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10MB limit
+  }
+});
 
 // Load products from file
 function loadProducts() {
@@ -44,7 +49,49 @@ function loadProducts() {
     const data = fs.readFileSync(path.join(productsDir, 'products.json'), 'utf8');
     return JSON.parse(data);
   } catch (err) {
-    return [];
+    // Return sample products if file doesn't exist
+    return [
+      {
+        id: 1,
+        name: "Classic White T-Shirt",
+        price: 19.99,
+        category: "men",
+        image: "/uploads/sample-tshirt.jpg",
+        media: [
+          { type: 'image', url: "/uploads/sample-tshirt.jpg" }
+        ],
+        description: "A classic white t-shirt made from 100% cotton. Perfect for casual wear.",
+        sizes: ["S", "M", "L", "XL"],
+        reviews: [
+          {
+            name: "John Doe",
+            date: "2025-05-15",
+            rating: 5,
+            comment: "Great quality t-shirt, fits perfectly!"
+          }
+        ]
+      },
+      {
+        id: 2,
+        name: "Denim Jacket",
+        price: 49.99,
+        category: "women",
+        image: "/uploads/sample-jacket.jpg",
+        media: [
+          { type: 'image', url: "/uploads/sample-jacket.jpg" }
+        ],
+        description: "Stylish denim jacket with a modern fit. Perfect for layering.",
+        sizes: ["XS", "S", "M", "L"],
+        reviews: [
+          {
+            name: "Emily Johnson",
+            date: "2025-05-12",
+            rating: 5,
+            comment: "Love this jacket! It's my new favorite."
+          }
+        ]
+      }
+    ];
   }
 }
 
@@ -72,9 +119,13 @@ app.get('/api/products/:id', (req, res) => {
 });
 
 // Add new product with image upload
-app.post('/api/products', upload.array('media', 5), (req, res) => {
+app.post('/api/products', upload.array('media', 10), (req, res) => {
   try {
     const { name, price, category, sizes, description } = req.body;
+    
+    if (!name || !price || !category) {
+      return res.status(400).json({ message: 'Name, price, and category are required' });
+    }
     
     // Process sizes
     const sizesArray = sizes ? sizes.split(',').map(s => s.trim()) : ["S", "M", "L"];
@@ -84,7 +135,8 @@ app.post('/api/products', upload.array('media', 5), (req, res) => {
       const fileType = file.mimetype.startsWith('image/') ? 'image' : 'video';
       return {
         type: fileType,
-        url: `/uploads/${file.filename}`
+        url: `/uploads/${file.filename}`,
+        filename: file.filename
       };
     });
     
@@ -94,10 +146,10 @@ app.post('/api/products', upload.array('media', 5), (req, res) => {
       name,
       price: parseFloat(price),
       category,
-      image: mediaFiles.length > 0 ? mediaFiles[0].url : '',
+      image: mediaFiles.length > 0 ? mediaFiles[0].url : '/uploads/default-product.jpg',
       media: mediaFiles,
       sizes: sizesArray,
-      description,
+      description: description || '',
       reviews: []
     };
     
@@ -109,18 +161,15 @@ app.post('/api/products', upload.array('media', 5), (req, res) => {
     res.status(201).json({ message: 'Product added successfully', product: newProduct });
   } catch (err) {
     console.error('Error adding product:', err);
-    res.status(500).json({ message: 'Failed to add product' });
+    res.status(500).json({ message: 'Failed to add product', error: err.message });
   }
 });
 
 // Update product
-app.put('/api/products/:id', upload.array('media', 5), (req, res) => {
+app.put('/api/products/:id', upload.array('media', 10), (req, res) => {
   try {
     const { name, price, category, sizes, description } = req.body;
     const productId = parseInt(req.params.id);
-    
-    // Process sizes
-    const sizesArray = sizes ? sizes.split(',').map(s => s.trim()) : ["S", "M", "L"];
     
     let products = loadProducts();
     const productIndex = products.findIndex(p => p.id === productId);
@@ -129,35 +178,42 @@ app.put('/api/products/:id', upload.array('media', 5), (req, res) => {
       return res.status(404).json({ message: 'Product not found' });
     }
     
-    // Process media files
-    const mediaFiles = req.files.map(file => {
-      const fileType = file.mimetype.startsWith('image/') ? 'image' : 'video';
-      return {
-        type: fileType,
-        url: `/uploads/${file.filename}`
-      };
-    });
+    // Process sizes
+    const sizesArray = sizes ? sizes.split(',').map(s => s.trim()) : ["S", "M", "L"];
     
-    // Update product
-    products[productIndex] = {
+    // Update product data
+    const updatedProduct = {
       ...products[productIndex],
-      name,
-      price: parseFloat(price),
-      category,
+      name: name || products[productIndex].name,
+      price: price ? parseFloat(price) : products[productIndex].price,
+      category: category || products[productIndex].category,
       sizes: sizesArray,
-      description,
-      // Update media if new files were uploaded
-      ...(mediaFiles.length > 0 && {
-        image: mediaFiles[0].url,
-        media: mediaFiles
-      })
+      description: description || products[productIndex].description
     };
     
+    // Process new media files if uploaded
+    if (req.files && req.files.length > 0) {
+      const mediaFiles = req.files.map(file => {
+        const fileType = file.mimetype.startsWith('image/') ? 'image' : 'video';
+        return {
+          type: fileType,
+          url: `/uploads/${file.filename}`,
+          filename: file.filename
+        };
+      });
+      
+      updatedProduct.media = mediaFiles;
+      updatedProduct.image = mediaFiles[0].url;
+    }
+    
+    // Update product in array
+    products[productIndex] = updatedProduct;
     saveProducts(products);
-    res.json({ message: 'Product updated successfully', product: products[productIndex] });
+    
+    res.json({ message: 'Product updated successfully', product: updatedProduct });
   } catch (err) {
     console.error('Error updating product:', err);
-    res.status(500).json({ message: 'Failed to update product' });
+    res.status(500).json({ message: 'Failed to update product', error: err.message });
   }
 });
 
@@ -173,25 +229,58 @@ app.delete('/api/products/:id', (req, res) => {
     }
     
     // Remove product
-    products.splice(productIndex, 1);
+    const deletedProduct = products.splice(productIndex, 1)[0];
     saveProducts(products);
     
-    res.json({ message: 'Product deleted successfully' });
+    res.json({ message: 'Product deleted successfully', product: deletedProduct });
   } catch (err) {
     console.error('Error deleting product:', err);
-    res.status(500).json({ message: 'Failed to delete product' });
+    res.status(500).json({ message: 'Failed to delete product', error: err.message });
+  }
+});
+
+// Get orders
+app.get('/api/orders', (req, res) => {
+  try {
+    const ordersData = fs.existsSync(path.join(__dirname, 'orders.json')) 
+      ? JSON.parse(fs.readFileSync(path.join(__dirname, 'orders.json'), 'utf8'))
+      : [];
+    res.json(ordersData);
+  } catch (err) {
+    res.json([]);
+  }
+});
+
+// Save order
+app.post('/api/orders', (req, res) => {
+  try {
+    const order = req.body;
+    const orders = fs.existsSync(path.join(__dirname, 'orders.json')) 
+      ? JSON.parse(fs.readFileSync(path.join(__dirname, 'orders.json'), 'utf8'))
+      : [];
+    
+    order.id = 'ORD-' + Date.now();
+    order.date = new Date().toISOString();
+    orders.push(order);
+    
+    fs.writeFileSync(path.join(__dirname, 'orders.json'), JSON.stringify(orders, null, 2));
+    res.status(201).json({ message: 'Order placed successfully', order });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to save order', error: err.message });
   }
 });
 
 // Serve uploaded files
 app.use('/uploads', express.static(uploadsDir));
 
-// Serve the HTML file
-app.get('/', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+// Serve the HTML file for all other routes (SPA support)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 // Start server
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  console.log(`FashionHub Server running on http://localhost:${PORT}`);
+  console.log(`Uploads directory: ${uploadsDir}`);
+  console.log(`Products directory: ${productsDir}`);
 });
