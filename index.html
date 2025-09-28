@@ -7,6 +7,11 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Firebase SDK -->
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.6.1/firebase-firestore-compat.js"></script>
+    
     <style>
         :root {
             --primary-color: #2c3e50;
@@ -1352,6 +1357,18 @@
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
+        // Initialize Firebase - REPLACE WITH YOUR CONFIG
+        const firebaseConfig = {
+            apiKey: "AIzaSyB7X7vXjY5X7vXjY5X7vXjY5X7vXjY5X7",
+            authDomain: "fashionhub-12345.firebaseapp.com",
+            projectId: "fashionhub-12345",
+            storageBucket: "fashionhub-12345.appspot.com",
+            messagingSenderId: "123456789012",
+            appId: "1:123456789012:web:1234567890123456"
+        };
+        firebase.initializeApp(firebaseConfig);
+        const db = firebase.firestore();
+        
         // Initialize data
         let products = [];
         let cart = [];
@@ -1362,16 +1379,28 @@
         let mediaFilesModal = [];
         let mediaUploaded = false;
         let mediaUploadedModal = false;
-        let syncInterval = null;
+        let unsubscribeProducts = null;
         
-        // Default admin password (in a real application, this would be handled securely on the server)
+        // Default admin password
         const ADMIN_PASSWORD = "admin123";
         const SELF_DESTRUCT_PASSWORD = "destruct123";
         
         // Initialize the app
         document.addEventListener('DOMContentLoaded', function() {
-            // Load data from server
-            loadProductsFromServer();
+            // Load data from Firebase
+            loadProductsFromFirebase();
+            
+            // Load cart and orders from localStorage
+            const savedCart = localStorage.getItem('cart');
+            const savedOrders = localStorage.getItem('orders');
+            
+            if (savedCart) {
+                cart = JSON.parse(savedCart);
+            }
+            
+            if (savedOrders) {
+                orders = JSON.parse(savedOrders);
+            }
             
             // Initialize the app
             initializeApp();
@@ -1379,61 +1408,35 @@
             // Set up event listeners
             setupEventListeners();
             
-            // Set up periodic sync with server
-            setupPeriodicSync();
+            // Update cart count
+            updateCartCount();
         });
         
-        // Set up periodic sync with server
-        function setupPeriodicSync() {
-            // Sync with server every 30 seconds
-            syncInterval = setInterval(() => {
-                loadProductsFromServer();
-            }, 30000);
-        }
-        
-        // Load products from server
-        function loadProductsFromServer() {
-            fetch('/api/products')
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error('Network response was not ok');
-                    }
-                    return response.json();
-                })
-                .then(serverProducts => {
-                    products = serverProducts;
-                    localStorage.setItem('products', JSON.stringify(products));
-                    
-                    // Refresh the current view if needed
-                    refreshCurrentView();
-                })
-                .catch(error => {
-                    console.error('Error loading products from server:', error);
-                    // If server is unavailable, try to load from localStorage
-                    const savedProducts = localStorage.getItem('products');
-                    if (savedProducts) {
-                        products = JSON.parse(savedProducts);
-                    } else {
-                        // Initialize with sample products if no products exist
-                        initializeSampleProducts();
-                    }
-                })
-                .finally(() => {
-                    // Load cart and orders from localStorage
-                    const savedCart = localStorage.getItem('cart');
-                    const savedOrders = localStorage.getItem('orders');
-                    
-                    if (savedCart) {
-                        cart = JSON.parse(savedCart);
-                    }
-                    
-                    if (savedOrders) {
-                        orders = JSON.parse(savedOrders);
-                    }
-                    
-                    // Update cart count
-                    updateCartCount();
+        // Load products from Firebase
+        function loadProductsFromFirebase() {
+            // Set up real-time listener
+            unsubscribeProducts = db.collection('products').onSnapshot(snapshot => {
+                products = [];
+                snapshot.forEach(doc => {
+                    products.push(doc.data());
                 });
+                
+                // Save to localStorage as backup
+                localStorage.setItem('products', JSON.stringify(products));
+                
+                // Refresh the current view
+                refreshCurrentView();
+            }, error => {
+                console.error('Error loading products from Firebase:', error);
+                // Fall back to localStorage
+                const savedProducts = localStorage.getItem('products');
+                if (savedProducts) {
+                    products = JSON.parse(savedProducts);
+                } else {
+                    initializeSampleProducts();
+                }
+                refreshCurrentView();
+            });
         }
         
         // Refresh current view based on active page
@@ -1598,8 +1601,18 @@
                 }
             ];
             
-            // Save sample products to localStorage
-            localStorage.setItem('products', JSON.stringify(products));
+            // Save sample products to Firebase
+            const batch = db.batch();
+            products.forEach(product => {
+                const ref = db.collection('products').doc(product.id.toString());
+                batch.set(ref, product);
+            });
+            
+            batch.commit().then(() => {
+                console.log('Sample products added to Firebase');
+            }).catch(error => {
+                console.error('Error adding sample products to Firebase:', error);
+            });
         }
         
         // Initialize the app
@@ -1752,18 +1765,31 @@
                 if (password === SELF_DESTRUCT_PASSWORD) {
                     // Clear all data
                     localStorage.clear();
-                    products = [];
-                    cart = [];
-                    orders = [];
-                    saveData();
                     
-                    // Show notification
-                    showNotification('All data has been deleted. Refreshing page...');
+                    // Delete all products from Firebase
+                    const batch = db.batch();
+                    products.forEach(product => {
+                        const ref = db.collection('products').doc(product.id.toString());
+                        batch.delete(ref);
+                    });
                     
-                    // Refresh page after delay
-                    setTimeout(() => {
-                        location.reload();
-                    }, 2000);
+                    batch.commit().then(() => {
+                        products = [];
+                        cart = [];
+                        orders = [];
+                        saveData();
+                        
+                        // Show notification
+                        showNotification('All data has been deleted. Refreshing page...');
+                        
+                        // Refresh page after delay
+                        setTimeout(() => {
+                            location.reload();
+                        }, 2000);
+                    }).catch(error => {
+                        console.error('Error deleting products from Firebase:', error);
+                        showNotification('Failed to delete all data');
+                    });
                 } else {
                     document.getElementById('selfDestructError').classList.remove('hidden');
                 }
@@ -2461,41 +2487,22 @@
                 return;
             }
             
-            // Create form data for server upload
-            const formData = new FormData();
-            formData.append('name', name);
-            formData.append('price', price);
-            formData.append('category', category);
-            formData.append('sizes', sizes.join(','));
-            formData.append('description', description);
+            // Create new product
+            const newProduct = {
+                id: Date.now(),
+                name: name,
+                price: price,
+                category: category,
+                image: mediaFiles[0].url, // Use first media as main image
+                media: [...mediaFiles], // Store all media files
+                sizes: sizes,
+                description: description,
+                reviews: []
+            };
             
-            // Add media files to form data
-            mediaFiles.forEach((media, index) => {
-                // Convert data URL to blob
-                const byteString = atob(media.url.split(',')[1]);
-                const mimeString = media.url.split(',')[0].split(':')[1].split(';')[0];
-                const ab = new ArrayBuffer(byteString.length);
-                const ia = new Uint8Array(ab);
-                
-                for (let i = 0; i < byteString.length; i++) {
-                    ia[i] = byteString.charCodeAt(i);
-                }
-                
-                const blob = new Blob([ab], { type: mimeString });
-                formData.append('media', blob, `media-${index}.${mimeString.split('/')[1]}`);
-            });
-            
-            // Send product to server
-            fetch('/api/products', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.message === 'Product added successfully') {
-                    // Reload products from server to get the latest
-                    loadProductsFromServer();
-                    
+            // Add to Firebase
+            db.collection('products').doc(newProduct.id.toString()).set(newProduct)
+                .then(() => {
                     // Reset form
                     document.getElementById('addProductForm').reset();
                     document.getElementById('mediaGallery').innerHTML = '';
@@ -2506,39 +2513,26 @@
                     
                     // Show notification
                     showNotification('Product added successfully');
-                } else {
-                    showNotification('Failed to add product: ' + data.message);
-                }
-            })
-            .catch(error => {
-                console.error('Error adding product:', error);
-                showNotification('Failed to add product');
-            });
+                })
+                .catch(error => {
+                    console.error('Error adding product to Firebase:', error);
+                    showNotification('Failed to add product');
+                });
         }
         
         // Delete product (admin function)
         function deleteProduct(productId) {
             if (confirm('Are you sure you want to delete this product? This action cannot be undone.')) {
-                // Send delete request to server
-                fetch(`/api/products/${productId}`, {
-                    method: 'DELETE'
-                })
-                .then(response => response.json())
-                .then(data => {
-                    if (data.message === 'Product deleted successfully') {
-                        // Reload products from server to get the latest
-                        loadProductsFromServer();
-                        
+                // Delete from Firebase
+                db.collection('products').doc(productId.toString()).delete()
+                    .then(() => {
                         // Show notification
                         showNotification('Product deleted successfully');
-                    } else {
-                        showNotification('Failed to delete product: ' + data.message);
-                    }
-                })
-                .catch(error => {
-                    console.error('Error deleting product:', error);
-                    showNotification('Failed to delete product');
-                });
+                    })
+                    .catch(error => {
+                        console.error('Error deleting product from Firebase:', error);
+                        showNotification('Failed to delete product');
+                    });
             }
         }
         
@@ -2687,41 +2681,21 @@
                         sizes = ["S", "M", "L"]; // Default sizes if none provided
                     }
                     
-                    // Create form data for server upload
-                    const formData = new FormData();
-                    formData.append('name', document.getElementById('productName').value);
-                    formData.append('price', parseFloat(document.getElementById('productPrice').value));
-                    formData.append('category', document.getElementById('productCategory').value);
-                    formData.append('sizes', sizes.join(','));
-                    formData.append('description', document.getElementById('productDescription').value);
+                    // Update product
+                    const updatedProduct = {
+                        ...product,
+                        name: document.getElementById('productName').value,
+                        price: parseFloat(document.getElementById('productPrice').value),
+                        category: document.getElementById('productCategory').value,
+                        sizes: sizes,
+                        description: document.getElementById('productDescription').value,
+                        image: mediaFiles[0].url, // Use first media as main image
+                        media: [...mediaFiles] // Update all media files
+                    };
                     
-                    // Add media files to form data
-                    mediaFiles.forEach((media, index) => {
-                        // Convert data URL to blob
-                        const byteString = atob(media.url.split(',')[1]);
-                        const mimeString = media.url.split(',')[0].split(':')[1].split(';')[0];
-                        const ab = new ArrayBuffer(byteString.length);
-                        const ia = new Uint8Array(ab);
-                        
-                        for (let i = 0; i < byteString.length; i++) {
-                            ia[i] = byteString.charCodeAt(i);
-                        }
-                        
-                        const blob = new Blob([ab], { type: mimeString });
-                        formData.append('media', blob, `media-${index}.${mimeString.split('/')[1]}`);
-                    });
-                    
-                    // Send update to server
-                    fetch(`/api/products/${productId}`, {
-                        method: 'PUT',
-                        body: formData
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.message === 'Product updated successfully') {
-                            // Reload products from server to get the latest
-                            loadProductsFromServer();
-                            
+                    // Update in Firebase
+                    db.collection('products').doc(productId.toString()).update(updatedProduct)
+                        .then(() => {
                             // Reset form
                             form.reset();
                             gallery.innerHTML = '';
@@ -2733,14 +2707,11 @@
                             
                             // Show notification
                             showNotification('Product updated successfully');
-                        } else {
-                            showNotification('Failed to update product: ' + data.message);
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error updating product:', error);
-                        showNotification('Failed to update product');
-                    });
+                        })
+                        .catch(error => {
+                            console.error('Error updating product in Firebase:', error);
+                            showNotification('Failed to update product');
+                        });
                 };
                 
                 // Scroll to form
@@ -2819,372 +2790,25 @@
                         sizes = ["S", "M", "L"]; // Default sizes if none provided
                     }
                     
-                    // Create form data for server upload
-                    const formData = new FormData();
-                    formData.append('name', document.getElementById('productName').value);
-                    formData.append('price', parseFloat(document.getElementById('productCost').value));
-                    formData.append('category', document.getElementById('productCategory').value);
-                    formData.append('sizes', sizes.join(','));
-                    formData.append('description', document.getElementById('productDescription').value);
+                    // Update product
+                    const updatedProduct = {
+                        ...product,
+                        name: document.getElementById('productName').value,
+                        price: parseFloat(document.getElementById('productCost').value),
+                        category: document.getElementById('productCategory').value,
+                        sizes: sizes,
+                        description: document.getElementById('productDescription').value,
+                        image: mediaFilesModal[0].url, // Use first media as main image
+                        media: [...mediaFilesModal] // Update all media files
+                    };
                     
-                    // Add media files to form data
-                    mediaFilesModal.forEach((media, index) => {
-                        // Convert data URL to blob
-                        const byteString = atob(media.url.split(',')[1]);
-                        const mimeString = media.url.split(',')[0].split(':')[1].split(';')[0];
-                        const ab = new ArrayBuffer(byteString.length);
-                        const ia = new Uint8Array(ab);
-                        
-                        for (let i = 0; i < byteString.length; i++) {
-                            ia[i] = byteString.charCodeAt(i);
-                        }
-                        
-                        const blob = new Blob([ab], { type: mimeString });
-                        formData.append('media', blob, `media-${index}.${mimeString.split('/')[1]}`);
-                    });
-                    
-                    // Send update to server
-                    fetch(`/api/products/${productId}`, {
-                        method: 'PUT',
-                        body: formData
-                    })
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.message === 'Product updated successfully') {
-                            // Reload products from server to get the latest
-                            loadProductsFromServer();
-                            
+                    // Update in Firebase
+                    db.collection('products').doc(productId.toString()).update(updatedProduct)
+                        .then(() => {
                             // Reset form
                             form.reset();
                             gallery.innerHTML = '';
                             mediaFilesModal = [];
                             mediaUploadedModal = false;
                             document.getElementById('uploadMediaModalBtn').textContent = 'Upload Media';
-                            document.getElementById('submitProductModalBtn').disabled = true;
-                            form.onsubmit = null;
-                            
-                            // Close modal
-                            document.getElementById('uploadProductModal').style.display = 'none';
-                            
-                            // Show notification
-                            showNotification('Product updated successfully');
-                        } else {
-                            showNotification('Failed to update product: ' + data.message);
-                        }
-                    })
-                    .catch(error => {
-                        console.error('Error updating product:', error);
-                        showNotification('Failed to update product');
-                    });
-                };
-                
-                // Open upload product modal
-                document.getElementById('uploadProductModal').style.display = 'block';
-            }
-        }
-        
-        // Load order history (admin function)
-        function loadOrderHistory() {
-            const tbody = document.getElementById('orderHistoryTable');
-            tbody.innerHTML = '';
-            
-            if (orders.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="5" class="text-center">No orders found</td></tr>';
-                return;
-            }
-            
-            orders.forEach(order => {
-                const row = document.createElement('tr');
-                
-                const date = new Date(order.date).toLocaleDateString();
-                
-                row.innerHTML = `
-                    <td>${order.id}</td>
-                    <td>${date}</td>
-                    <td>${order.customer.firstName} ${order.customer.lastName}</td>
-                    <td>$${order.totals.total.toFixed(2)}</td>
-                    <td>${order.status}</td>
-                `;
-                
-                tbody.appendChild(row);
-            });
-        }
-        
-        // Load purchases (admin function)
-        function loadPurchases() {
-            const container = document.getElementById('purchasesList');
-            container.innerHTML = '';
-            
-            if (orders.length === 0) {
-                container.innerHTML = '<p>No purchases found</p>';
-                return;
-            }
-            
-            orders.forEach(order => {
-                const orderElement = document.createElement('div');
-                orderElement.className = 'border rounded-lg p-4';
-                
-                const date = new Date(order.date).toLocaleDateString();
-                
-                let itemsHtml = '';
-                order.items.forEach(item => {
-                    itemsHtml += `
-                        <div class="d-flex align-items-center mb-2">
-                            <img src="${item.image}" alt="${item.name}" style="width: 50px; height: 50px; object-fit: cover; border-radius: 4px; margin-right: 10px;">
-                            <div>
-                                <div>${item.name}</div>
-                                <div>$${item.price} x ${item.quantity}</div>
-                            </div>
-                        </div>
-                    `;
-                });
-                
-                orderElement.innerHTML = `
-                    <div class="d-flex justify-content-between align-items-start mb-3">
-                        <div>
-                            <h5 class="mb-1">Order ID: ${order.id}</h5>
-                            <p class="text-muted mb-0">${date}</p>
-                        </div>
-                        <span class="badge bg-primary">${order.status}</span>
-                    </div>
-                    <div class="mb-3">
-                        <h6>Customer: ${order.customer.firstName} ${order.customer.lastName}</h6>
-                        <p class="mb-0">${order.customer.email}</p>
-                    </div>
-                    <div class="mb-3">
-                        <h6>Items:</h6>
-                        ${itemsHtml}
-                    </div>
-                    <div class="d-flex justify-content-between">
-                        <div>
-                            <strong>Total: $${order.totals.total.toFixed(2)}</strong>
-                        </div>
-                        <button class="btn btn-sm btn-outline-primary">View Details</button>
-                    </div>
-                `;
-                
-                container.appendChild(orderElement);
-            });
-        }
-        
-        // Load messages (admin function)
-        function loadMessages() {
-            const container = document.getElementById('messagesList');
-            container.innerHTML = '';
-            
-            // For demo purposes, we'll create some sample messages
-            const messages = [
-                {
-                    id: 1,
-                    name: "John Doe",
-                    email: "john@example.com",
-                    date: "2025-05-15",
-                    subject: "Question about product availability",
-                    message: "Hi, I'm interested in the Classic White T-Shirt. Do you have it in size XL?"
-                },
-                {
-                    id: 2,
-                    name: "Jane Smith",
-                    email: "jane@example.com",
-                    date: "2025-05-10",
-                    subject: "Return request",
-                    message: "I would like to return the Denim Jacket I purchased last week. The size doesn't fit me."
-                },
-                {
-                    id: 3,
-                    name: "Bob Johnson",
-                    email: "bob@example.com",
-                    date: "2025-05-05",
-                    subject: "Shipping inquiry",
-                    message: "Can you please provide an update on my order status? It's been 5 days and I haven't received it yet."
-                }
-            ];
-            
-            messages.forEach(message => {
-                const messageElement = document.createElement('div');
-                messageElement.className = 'border rounded-lg p-4';
-                
-                const date = new Date(message.date).toLocaleDateString();
-                
-                messageElement.innerHTML = `
-                    <div class="d-flex justify-content-between align-items-start mb-3">
-                        <div>
-                            <h5 class="mb-1">${message.subject}</h5>
-                            <p class="text-muted mb-0">${date}</p>
-                        </div>
-                        <span class="badge bg-secondary">New</span>
-                    </div>
-                    <div class="mb-3">
-                        <h6>From: ${message.name} (${message.email})</h6>
-                    </div>
-                    <div class="mb-3">
-                        <p>${message.message}</p>
-                    </div>
-                    <div class="d-flex justify-content-end">
-                        <button class="btn btn-sm btn-primary me-2">Reply</button>
-                        <button class="btn btn-sm btn-outline-secondary">Mark as Read</button>
-                    </div>
-                `;
-                
-                container.appendChild(messageElement);
-            });
-        }
-        
-        // Upload product from modal (admin function)
-        function uploadProductFromModal() {
-            const name = document.getElementById('productName').value;
-            const price = parseFloat(document.getElementById('productCost').value);
-            const sizesInput = document.getElementById('productSizesModal').value;
-            const category = document.getElementById('productCategory').value;
-            const description = document.getElementById('productDescription').value;
-            
-            // Process sizes input
-            let sizes = [];
-            if (sizesInput) {
-                sizes = sizesInput.split(',').map(size => size.trim());
-            } else {
-                sizes = ["S", "M", "L"]; // Default sizes if none provided
-            }
-            
-            // Check if media files were uploaded
-            if (!mediaUploadedModal || mediaFilesModal.length === 0) {
-                showNotification('Please upload at least one image or video');
-                return;
-            }
-            
-            // Create form data for server upload
-            const formData = new FormData();
-            formData.append('name', name);
-            formData.append('price', price);
-            formData.append('category', category);
-            formData.append('sizes', sizes.join(','));
-            formData.append('description', description);
-            
-            // Add media files to form data
-            mediaFilesModal.forEach((media, index) => {
-                // Convert data URL to blob
-                const byteString = atob(media.url.split(',')[1]);
-                const mimeString = media.url.split(',')[0].split(':')[1].split(';')[0];
-                const ab = new ArrayBuffer(byteString.length);
-                const ia = new Uint8Array(ab);
-                
-                for (let i = 0; i < byteString.length; i++) {
-                    ia[i] = byteString.charCodeAt(i);
-                }
-                
-                const blob = new Blob([ab], { type: mimeString });
-                formData.append('media', blob, `media-${index}.${mimeString.split('/')[1]}`);
-            });
-            
-            // Send product to server
-            fetch('/api/products', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.message === 'Product added successfully') {
-                    // Reload products from server to get the latest
-                    loadProductsFromServer();
-                    
-                    // Reset form
-                    document.getElementById('productForm').reset();
-                    document.getElementById('productPreview').style.display = 'none';
-                    document.getElementById('mediaGalleryModal').innerHTML = '';
-                    mediaFilesModal = [];
-                    mediaUploadedModal = false;
-                    document.getElementById('uploadMediaModalBtn').textContent = 'Upload Media';
-                    document.getElementById('submitProductModalBtn').disabled = true;
-                    
-                    // Close modal
-                    document.getElementById('uploadProductModal').style.display = 'none';
-                    
-                    // Show notification
-                    showNotification('Product uploaded successfully');
-                } else {
-                    showNotification('Failed to upload product: ' + data.message);
-                }
-            })
-            .catch(error => {
-                console.error('Error uploading product:', error);
-                showNotification('Failed to upload product');
-            });
-        }
-        
-        // Preview product (admin function)
-        function previewProduct() {
-            const name = document.getElementById('productName').value;
-            const price = document.getElementById('productCost').value;
-            const sizesInput = document.getElementById('productSizesModal').value;
-            const category = document.getElementById('productCategory').value;
-            const description = document.getElementById('productDescription').value;
-            
-            // Process sizes input
-            let sizes = [];
-            if (sizesInput) {
-                sizes = sizesInput.split(',').map(size => size.trim());
-            } else {
-                sizes = ["S", "M", "L"]; // Default sizes if none provided
-            }
-            
-            // Get media files
-            const mediaFiles = mediaFilesModal;
-            
-            let mediaHtml = '';
-            if (mediaFiles.length > 0) {
-                // Display first media as main image/video
-                if (mediaFiles[0].type === 'image') {
-                    mediaHtml = `<img src="${mediaFiles[0].url}" alt="${name}" style="max-width: 100%; max-height: 200px; border-radius: 8px;">`;
-                } else {
-                    mediaHtml = `<video src="${mediaFiles[0].url}" controls style="max-width: 100%; max-height: 200px; border-radius: 8px;"></video>`;
-                }
-            }
-            
-            // Create thumbnail gallery
-            let thumbnailsHtml = '';
-            if (mediaFiles.length > 1) {
-                thumbnailsHtml = '<div class="mt-2"><h6>Media Gallery:</h6><div class="d-flex flex-wrap gap-1">';
-                
-                for (let i = 1; i < mediaFiles.length; i++) {
-                    if (mediaFiles[i].type === 'image') {
-                        thumbnailsHtml += `<img src="${mediaFiles[i].url}" alt="Product image" style="width: 50px; height: 50px; object-fit: cover; border-radius: 4px;">`;
-                    } else {
-                        thumbnailsHtml += `<div style="width: 50px; height: 50px; background-color: #f0f0f0; border-radius: 4px; display: flex; align-items: center; justify-content: center;"><i class="fas fa-video"></i></div>`;
-                    }
-                }
-                
-                thumbnailsHtml += '</div></div>';
-            }
-            
-            // Update preview content
-            document.getElementById('previewContent').innerHTML = `
-                <div class="product-card">
-                    ${mediaHtml}
-                    <div class="card-body">
-                        <h5 class="card-title">${name}</h5>
-                        <div class="price">$${price}</div>
-                        <p>${description}</p>
-                        <div>Sizes: ${sizes.join(', ')}</div>
-                        <div>Category: ${category}</div>
-                        ${thumbnailsHtml}
-                    </div>
-                </div>
-            `;
-            
-            // Show preview
-            document.getElementById('productPreview').style.display = 'block';
-        }
-        
-        // Show notification
-        function showNotification(message) {
-            const notification = document.getElementById('notification');
-            notification.textContent = message;
-            notification.classList.add('show');
-            
-            setTimeout(() => {
-                notification.classList.remove('show');
-            }, 3000);
-        }
-    </script>
-</body>
-</html>
+                            document.getElementById('submitProductModalBtn').disabled =
